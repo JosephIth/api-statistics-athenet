@@ -1,0 +1,97 @@
+{
+  "info": {
+    "name": "Athenet — Marcador en vivo (Delegado + Statistics)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Colección para probar el flujo del marcador en vivo a través del BFF (web-org -> BFF -> ms-competiciones -> Kafka -> ms-statistics) o directo contra ms-competiciones."
+  },
+  "variable": [
+    { "key": "bffUrl", "value": "http://localhost:8087" },
+    { "key": "competitionsUrl", "value": "http://localhost:8082" },
+    { "key": "statisticsUrl", "value": "http://localhost:8083" },
+    { "key": "matchId", "value": "1" },
+    { "key": "delegateToken", "value": "REEMPLAZAR_ACCESS_TOKEN_DELEGADO" }
+  ],
+  "item": [
+    {
+      "name": "1. Iniciar encuentro (BFF)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{delegateToken}}" }
+        ],
+        "url": "{{bffUrl}}/api/delegate/matches/{{matchId}}/start",
+        "description": "Inicia el partido en Postgres (IN_PROGRESS) y publica evento INICIADO (0-0) en Kafka tras commit."
+      }
+    },
+    {
+      "name": "2. Marcador en vivo — PUNTO (BFF)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{delegateToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"homeScore\": 1,\n  \"awayScore\": 0\n}"
+        },
+        "url": "{{bffUrl}}/api/delegate/matches/{{matchId}}/score",
+        "description": "Publica evento PUNTO con marcador absoluto en Kafka sin escribir en Postgres. Responde 202 Accepted."
+      }
+    },
+    {
+      "name": "3. Finalizar o corregir encuentro (BFF)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{delegateToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"homeScore\": 2,\n  \"awayScore\": 1\n}"
+        },
+        "url": "{{bffUrl}}/api/delegate/matches/{{matchId}}/result",
+        "description": "Guarda el resultado final en Postgres, publica resultado.registrado en RabbitMQ (outbox) y FINALIZADO en Kafka tras commit."
+      }
+    },
+    {
+      "name": "4. Marcador en vivo — PUNTO (directo ms-competiciones)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{delegateToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"homeScore\": 2,\n  \"awayScore\": 0\n}"
+        },
+        "url": "{{competitionsUrl}}/api/delegate/matches/{{matchId}}/score",
+        "description": "Prueba directa del endpoint de ms-competiciones sin pasar por el BFF."
+      }
+    },
+    {
+      "name": "5. Marcador actual (ms-statistics)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": "{{statisticsUrl}}/marcador/actual",
+        "description": "Endpoint de compatibilidad consumido por web-athenet al conectar por STOMP."
+      }
+    },
+    {
+      "name": "6. Marcador por encuentro (ms-statistics)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": "{{statisticsUrl}}/marcador/{{matchId}}",
+        "description": "Endpoint aditivo multi-partido: devuelve el último estado persistido en MongoDB para el encuentro."
+      }
+    }
+  ]
+}

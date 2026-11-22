@@ -1,0 +1,4 @@
+# Perfil de desarrollo local: abre orígenes CORS y STOMP
+app:
+  cors:
+    allowed-origins: "*"
