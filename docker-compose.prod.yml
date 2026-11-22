@@ -1,0 +1,68 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNO://0.0.0.0:29092,EXTERNO://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # EXTERNO anuncia el dominio público DuckDNS para que competition (otra EC2/lab) pueda conectarse
+      KAFKA_ADVERTISED_LISTENERS: INTERNO://kafka:29092,EXTERNO://${EC2_STATS_PUBLIC_HOST}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNO:PLAINTEXT,EXTERNO:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNO
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+      interval: 10s
+      retries: 10
+
+  kafka-init:
+    image: apache/kafka:3.9.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        /opt/kafka/bin/kafka-topics.sh
+        --bootstrap-server kafka:29092
+        --create --if-not-exists
+        --topic marcador
+        --partitions 1
+        --replication-factor 1
+
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    command: --wiredTigerCacheSizeGB 0.25
+    volumes:
+      - mongo_data:/data/db
+
+  ms-statistics:
+    image: ${STATISTICS_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8083:8083"
+    env_file:
+      - .env
+
+volumes:
+  kafka_data:
+  mongo_data:
